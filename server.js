@@ -5,163 +5,67 @@ const jwt = require("jsonwebtoken");
 
 const app = express();
 
-// CORS middleware - Fixed for all routes
+// Simple CORS - Fix for Vercel
 app.use((req, res, next) => {
-  const allowedOrigins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "https://mern-authentication-frontend-nu.vercel.app"
-  ];
-  
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.header("Access-Control-Allow-Origin", origin);
-  } else {
-    // Allow any origin for development - remove in production
-    res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
-  }
-  
+  res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-auth-token");
-  res.header("Access-Control-Allow-Credentials", "true");
   
-  // Handle preflight requests
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
-  
   next();
 });
 
 app.use(express.json());
 
-// Add routes without /api prefix to handle frontend requests
-app.post("/auth/register", async (req, res) => {
-  // Forward to the correct API route
-  req.url = "/api/auth/register";
-  app.handle(req, res);
-});
-
-app.post("/auth/login", async (req, res) => {
-  // Forward to the correct API route
-  req.url = "/api/auth/login";
-  app.handle(req, res);
-});
-
-app.get("/auth/me", async (req, res) => {
-  // Forward to the correct API route
-  req.url = "/api/auth/me";
-  app.handle(req, res);
-});
-
-// TEST ROUTE
-app.get("/api/test", (req, res) => {
+// Test route
+app.get("/", (req, res) => {
   res.json({ 
-    message: "API is working!",
-    status: "success",
-    timestamp: new Date().toISOString()
+    message: "MERN Auth API is running!",
+    status: "success"
   });
 });
 
-// HEALTH CHECK
+// Health check
 app.get("/api/health", (req, res) => {
   res.json({ 
     status: "OK",
-    message: "Server is healthy",
-    database: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected"
-  });
-});
-
-// ROOT ROUTE
-app.get("/", (req, res) => {
-  res.json({ 
-    message: "MERN Auth API Server is running!",
-    status: "success",
-    endpoints: {
-      test: "/api/test",
-      health: "/api/health", 
-      register: "/api/auth/register",
-      login: "/api/auth/login",
-      get_user: "/api/auth/me"
-    },
-    timestamp: new Date().toISOString()
+    message: "Server is healthy"
   });
 });
 
 // User Model
-const userSchema = new mongoose.Schema(
-  {
-    name: { 
-      type: String, 
-      required: [true, "Name is required"], 
-      trim: true,
-      minlength: [2, "Name must be at least 2 characters"]
-    },
-    email: { 
-      type: String, 
-      required: [true, "Email is required"], 
-      unique: true, 
-      lowercase: true, 
-      trim: true,
-      match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, "Please enter a valid email"]
-    },
-    password: { 
-      type: String, 
-      required: [true, "Password is required"], 
-      minlength: [6, "Password must be at least 6 characters"] 
-    },
-  },
-  { timestamps: true }
-);
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  password: { type: String, required: true, minlength: 6 },
+}, { timestamps: true });
 
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
-  
-  try {
-    this.password = await bcrypt.hash(this.password, 12);
-    next();
-  } catch (error) {
-    next(error);
-  }
+  this.password = await bcrypt.hash(this.password, 12);
+  next();
 });
 
 userSchema.methods.comparePassword = async function (candidatePassword) {
-  try {
-    return await bcrypt.compare(candidatePassword, this.password);
-  } catch (error) {
-    throw new Error("Password comparison failed");
-  }
+  return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// Remove any existing model to avoid OverwriteModelError
-if (mongoose.models.User) {
-  mongoose.deleteModel("User");
-}
 const User = mongoose.model("User", userSchema);
 
 // Auth middleware
 const auth = (req, res, next) => {
   const token = req.header("x-auth-token");
-  
   if (!token) {
-    return res.status(401).json({ 
-      success: false,
-      message: "No token, authorization denied" 
-    });
+    return res.status(401).json({ message: "No token, authorization denied" });
   }
-  
   try {
-    const decoded = jwt.verify(
-      token, 
-      process.env.JWT_SECRET || "fallback-secret-key-for-development"
-    );
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
     req.user = { id: decoded.userId };
     next();
   } catch (error) {
-    return res.status(401).json({ 
-      success: false,
-      message: "Token is not valid" 
-    });
+    res.status(401).json({ message: "Token is not valid" });
   }
 };
 
@@ -170,43 +74,28 @@ app.post("/api/auth/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // Validation
     if (!name || !email || !password) {
-      return res.status(400).json({ 
-        success: false,
-        message: "All fields are required" 
-      });
+      return res.status(400).json({ message: "All fields are required" });
     }
-    
     if (password.length < 6) {
-      return res.status(400).json({ 
-        success: false,
-        message: "Password must be at least 6 characters" 
-      });
+      return res.status(400).json({ message: "Password must be at least 6 characters" });
     }
 
-    // Check if user exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({ 
-        success: false,
-        message: "User already exists with this email" 
-      });
+      return res.status(400).json({ message: "User already exists" });
     }
 
-    // Create user
     const user = new User({ name, email, password });
     await user.save();
 
-    // Generate token
     const token = jwt.sign(
       { userId: user._id },
-      process.env.JWT_SECRET || "fallback-secret-key-for-development",
+      process.env.JWT_SECRET || "secret",
       { expiresIn: "7d" }
     );
 
     res.status(201).json({
-      success: true,
       token,
       user: {
         id: user._id,
@@ -214,31 +103,9 @@ app.post("/api/auth/register", async (req, res) => {
         email: user.email,
       },
     });
-    
   } catch (error) {
     console.error("Register error:", error);
-    
-    // Handle duplicate key error
-    if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message: "User already exists with this email"
-      });
-    }
-    
-    // Handle validation errors
-    if (error.name === 'ValidationError') {
-      const messages = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({
-        success: false,
-        message: messages.join(', ')
-      });
-    }
-    
-    res.status(500).json({ 
-      success: false,
-      message: "Server error during registration" 
-    });
+    res.status(500).json({ message: "Server error" });
   }
 });
 
@@ -247,41 +114,27 @@ app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validation
     if (!email || !password) {
-      return res.status(400).json({ 
-        success: false,
-        message: "Email and password are required" 
-      });
+      return res.status(400).json({ message: "Email and password are required" });
     }
 
-    // Find user
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(400).json({ 
-        success: false,
-        message: "Invalid email or password" 
-      });
+      return res.status(400).json({ message: "Invalid credentials" });
     }
 
-    // Check password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res.status(400).json({ 
-        success: false,
-        message: "Invalid email or password" 
-      });
+      return res.status(400).json({ message: "Invalid credentials" });
     }
 
-    // Generate token
     const token = jwt.sign(
       { userId: user._id },
-      process.env.JWT_SECRET || "fallback-secret-key-for-development",
+      process.env.JWT_SECRET || "secret",
       { expiresIn: "7d" }
     );
 
     res.json({
-      success: true,
       token,
       user: {
         id: user._id,
@@ -289,13 +142,9 @@ app.post("/api/auth/login", async (req, res) => {
         email: user.email,
       },
     });
-    
   } catch (error) {
     console.error("Login error:", error);
-    res.status(500).json({ 
-      success: false,
-      message: "Server error during login" 
-    });
+    res.status(500).json({ message: "Server error" });
   }
 });
 
@@ -303,75 +152,19 @@ app.post("/api/auth/login", async (req, res) => {
 app.get("/api/auth/me", auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select("-password");
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found"
-      });
-    }
-    
-    res.json({
-      success: true,
-      user
-    });
-    
+    res.json(user);
   } catch (error) {
-    console.error("Get user error:", error);
-    res.status(500).json({ 
-      success: false,
-      message: "Server error while fetching user data" 
-    });
+    res.status(500).json({ message: "Server error" });
   }
 });
 
 // Connect to MongoDB
-const connectDB = async () => {
-  try {
-    if (process.env.MONGODB_URI) {
-      await mongoose.connect(process.env.MONGODB_URI, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-      });
-      console.log("✅ MongoDB connected successfully");
-    } else {
-      console.log("⚠️  MONGODB_URI not set, running without database connection");
-    }
-  } catch (error) {
-    console.log("❌ MongoDB connection failed:", error.message);
-  }
-};
+mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/mern-auth", {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => console.log("MongoDB connected"))
+.catch(err => console.log("MongoDB error:", err));
 
-connectDB();
-
-// Global error handler
-app.use((error, req, res, next) => {
-  console.error("Unhandled error:", error);
-  res.status(500).json({
-    success: false,
-    message: "Internal server error"
-  });
-});
-
-// 404 handler for undefined API routes
-app.use("/api/*", (req, res) => {
-  res.status(404).json({
-    success: false,
-    error: "API route not found",
-    path: req.originalUrl,
-    method: req.method
-  });
-});
-
-// Catch-all handler
-app.use("*", (req, res) => {
-  res.status(404).json({
-    success: false,
-    error: "Route not found",
-    path: req.originalUrl,
-    method: req.method
-  });
-});
-
-// Export the app for Vercel
+// Export for Vercel
 module.exports = app;
