@@ -5,7 +5,7 @@ const jwt = require("jsonwebtoken");
 
 const app = express();
 
-// CORS middleware - Updated with proper credentials
+// CORS middleware - Fixed for all routes
 app.use((req, res, next) => {
   const allowedOrigins = [
     "http://localhost:5173",
@@ -16,19 +16,43 @@ app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
     res.header("Access-Control-Allow-Origin", origin);
+  } else {
+    // Allow any origin for development - remove in production
+    res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   }
   
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-auth-token");
   res.header("Access-Control-Allow-Credentials", "true");
   
+  // Handle preflight requests
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
+  
   next();
 });
 
 app.use(express.json());
+
+// Add routes without /api prefix to handle frontend requests
+app.post("/auth/register", async (req, res) => {
+  // Forward to the correct API route
+  req.url = "/api/auth/register";
+  app.handle(req, res);
+});
+
+app.post("/auth/login", async (req, res) => {
+  // Forward to the correct API route
+  req.url = "/api/auth/login";
+  app.handle(req, res);
+});
+
+app.get("/auth/me", async (req, res) => {
+  // Forward to the correct API route
+  req.url = "/api/auth/me";
+  app.handle(req, res);
+});
 
 // TEST ROUTE
 app.get("/api/test", (req, res) => {
