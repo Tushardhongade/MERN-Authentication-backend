@@ -5,7 +5,7 @@ const jwt = require("jsonwebtoken");
 
 const app = express();
 
-// Simple CORS - Fix for Vercel
+// Simple CORS
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
@@ -19,11 +19,20 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// Test route
+// Root route
 app.get("/", (req, res) => {
   res.json({ 
     message: "MERN Auth API is running!",
-    status: "success"
+    status: "success",
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Test route
+app.get("/api/test", (req, res) => {
+  res.json({ 
+    message: "API is working!",
+    status: "success" 
   });
 });
 
@@ -31,7 +40,7 @@ app.get("/", (req, res) => {
 app.get("/api/health", (req, res) => {
   res.json({ 
     status: "OK",
-    message: "Server is healthy"
+    message: "Server is healthy" 
   });
 });
 
@@ -158,7 +167,12 @@ app.get("/api/auth/me", auth, async (req, res) => {
   }
 });
 
-// Connect to MongoDB
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: "Route not found" });
+});
+
+// Database connection
 mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/mern-auth", {
   useNewUrlParser: true,
   useUnifiedTopology: true,
