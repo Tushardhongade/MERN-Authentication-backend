@@ -2,19 +2,25 @@ const express = require("express");
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-require("dotenv").config();
 
 const app = express();
 
 // CORS middleware
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "http://localhost:5173");
+  const allowedOrigins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://mern-authentication-frontend-nu.vercel.app" // Update this later
+  ];
+  
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
+  
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, x-auth-token"
-  );
-
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-auth-token");
+  
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
@@ -23,17 +29,41 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
+// TEST ROUTE - Add this first
+app.get("/api/test", (req, res) => {
+  res.json({ 
+    message: "API is working!",
+    status: "success",
+    timestamp: new Date().toISOString()
+  });
+});
+
+// HEALTH CHECK - Add this
+app.get("/api/health", (req, res) => {
+  res.json({ 
+    status: "OK",
+    message: "Server is healthy"
+  });
+});
+
+// ROOT ROUTE - Important for Vercel
+app.get("/", (req, res) => {
+  res.json({ 
+    message: "MERN Auth API Server is running!",
+    endpoints: {
+      test: "/api/test",
+      health: "/api/health", 
+      register: "/api/auth/register",
+      login: "/api/auth/login"
+    }
+  });
+});
+
 // User Model
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    email: {
-      type: String,
-      required: true,
-      unique: true,
-      lowercase: true,
-      trim: true,
-    },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String, required: true, minlength: 6 },
   },
   { timestamps: true }
@@ -58,10 +88,7 @@ const auth = (req, res, next) => {
     return res.status(401).json({ message: "No token, authorization denied" });
   }
   try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "your-secret-key"
-    );
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
     req.user = { id: decoded.userId };
     next();
   } catch (error) {
@@ -72,25 +99,27 @@ const auth = (req, res, next) => {
 // REGISTER ROUTE
 app.post("/api/auth/register", async (req, res) => {
   try {
+    console.log("Register request received");
     const { name, email, password } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ message: "All fields are required" });
     }
     if (password.length < 6) {
-      return res
-        .status(400)
-        .json({ message: "Password must be at least 6 characters" });
+      return res.status(400).json({ message: "Password must be at least 6 characters" });
     }
 
+    // Check if user exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: "User already exists" });
     }
 
+    // Create user
     const user = new User({ name, email, password });
     await user.save();
 
+    // Generate token
     const token = jwt.sign(
       { userId: user._id },
       process.env.JWT_SECRET || "your-secret-key",
@@ -117,21 +146,22 @@ app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res
-        .status(400)
-        .json({ message: "Email and password are required" });
+      return res.status(400).json({ message: "Email and password are required" });
     }
 
+    // Find user
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
+    // Check password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
+    // Generate token
     const token = jwt.sign(
       { userId: user._id },
       process.env.JWT_SECRET || "your-secret-key",
@@ -162,22 +192,22 @@ app.get("/api/auth/me", auth, async (req, res) => {
   }
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: "Route not found" });
-});
+// Connect to MongoDB (optional for testing)
+const connectDB = async () => {
+  try {
+    if (process.env.MONGODB_URI) {
+      await mongoose.connect(process.env.MONGODB_URI, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+      });
+      console.log("MongoDB connected successfully");
+    }
+  } catch (error) {
+    console.log("MongoDB connection failed:", error.message);
+  }
+};
 
-// Database connection
-mongoose
-  .connect(process.env.MONGODB_URI || "mongodb://localhost:27017/mern-auth", {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch((err) => console.log("❌ MongoDB connection error:", err));
+connectDB();
 
-// Start server
-const PORT = 5000;
-app.listen(PORT, () => {
-  console.log(`✅ Server running on http://localhost:${PORT}`);
-});
+// Export the app for Vercel
+module.exports = app;
